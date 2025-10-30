@@ -1,0 +1,60 @@
+# OneBot Go2 配置文件示例
+
+# HTTP 服务器配置
+server:
+  port: 8080  # 服务器监听端口
+  host: 0.0.0.0  # 服务器监听地址
+
+# OneBot 连接配置
+onebot:
+  token: "your-token-here"  # 鉴权 token，与 OneBot 客户端配置一致
+  api_timeout: 10  # API 调用超时时间（秒）
+
+# 事件分发器配置
+dispatcher:
+  async: false  # 是否异步处理事件
+
+# 中间件配置
+middleware:
+  # 日志中间件
+  logging:
+    enabled: true
+
+  # 恢复中间件（防止 panic）
+  recovery:
+    enabled: true
+
+  # 超时中间件
+  timeout:
+    enabled: false
+    duration: 5  # 超时时长（秒）
+
+  # 限流中间件
+  rate_limit:
+    enabled: false
+    limit: 100  # 限制数量
+    window: 60  # 时间窗口（秒）
+
+# 命令处理器配置
+commands:
+  prefix: "/"  # 命令前缀
+  enabled_commands:  # 启用的命令列表
+    - help
+    - ping
+    - echo
+    - info
+    - ban
+    - unban
+    - quote
+    - image
+
+# 日志配置
+logging:
+  level: info  # 日志级别: debug, info, warn, error
+  format: text  # 日志格式: text, json
+  file: ""  # 日志文件路径，空表示输出到控制台
+
+# 管理员配置
+admins:
+  - 123456789  # 管理员 QQ 号列表
+  - 987654321

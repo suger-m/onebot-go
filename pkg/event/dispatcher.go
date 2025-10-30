@@ -11,10 +11,10 @@ import (
 
 // Dispatcher 事件分发器
 type Dispatcher struct {
-	handlers  map[reflect.Type][]handlerWrapper
-	mu        sync.RWMutex
-	middlewares []Middleware
-	async     bool
+	handlers     map[reflect.Type][]handlerWrapper
+	mu           sync.RWMutex
+	middlewares  []Middleware
+	async        bool
 	errorHandler ErrorHandler
 }
 
@@ -60,21 +60,21 @@ func (d *Dispatcher) Use(middleware Middleware) *Dispatcher {
 func (d *Dispatcher) register(eventType reflect.Type, handler interface{}, priority int, name string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	
+
 	d.handlers[eventType] = append(d.handlers[eventType], handlerWrapper{
 		handler:  handler,
 		priority: priority,
 		name:     name,
 	})
-	
+
 	// 按优先级排序
 	sort.Slice(d.handlers[eventType], func(i, j int) bool {
 		return d.handlers[eventType][i].priority < d.handlers[eventType][j].priority
 	})
-	
+
 	log.Printf("[EventDispatcher] Registered handler %s for event type %s with priority %d",
 		name, eventType, priority)
-	
+
 	return nil
 }
 
@@ -91,31 +91,31 @@ func RegisterFunc[T any](d *Dispatcher, name string, priority int, handler Handl
 }
 
 // Dispatch 分发事件
-func (d *Dispatcher) Dispatch(ctx context.Context, event interface{}) error {
+func (d *Dispatcher) Dispatch(ctx context.Context, event interface{}, server interface{}) error {
 	eventType := reflect.TypeOf(event)
-	
+
 	d.mu.RLock()
 	wrappers, exists := d.handlers[eventType]
 	d.mu.RUnlock()
-	
+
 	if !exists || len(wrappers) == 0 {
 		log.Printf("[EventDispatcher] No handlers registered for event type %s", eventType)
 		return nil
 	}
-	
+
 	log.Printf("[EventDispatcher] Dispatching event type %s to %d handler(s)", eventType, len(wrappers))
-	
+
 	if d.async {
-		go d.dispatchToHandlers(ctx, event, eventType, wrappers)
+		go d.dispatchToHandlers(ctx, event, eventType, wrappers, server)
 		return nil
 	}
-	
-	return d.dispatchToHandlers(ctx, event, eventType, wrappers)
+
+	return d.dispatchToHandlers(ctx, event, eventType, wrappers, server)
 }
 
-func (d *Dispatcher) dispatchToHandlers(ctx context.Context, event interface{}, eventType reflect.Type, wrappers []handlerWrapper) error {
+func (d *Dispatcher) dispatchToHandlers(ctx context.Context, event interface{}, eventType reflect.Type, wrappers []handlerWrapper, server interface{}) error {
 	for _, wrapper := range wrappers {
-		if err := d.invokeHandler(ctx, event, wrapper); err != nil {
+		if err := d.invokeHandler(ctx, event, wrapper, server); err != nil {
 			if d.errorHandler != nil {
 				d.errorHandler(err, eventType, wrapper.name)
 			}
@@ -124,29 +124,30 @@ func (d *Dispatcher) dispatchToHandlers(ctx context.Context, event interface{}, 
 	return nil
 }
 
-func (d *Dispatcher) invokeHandler(ctx context.Context, event interface{}, wrapper handlerWrapper) (err error) {
+func (d *Dispatcher) invokeHandler(ctx context.Context, event interface{}, wrapper handlerWrapper, server interface{}) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("panic in handler %s: %v", wrapper.name, r)
 		}
 	}()
-	
+
 	// 使用反射调用处理器
 	handlerValue := reflect.ValueOf(wrapper.handler)
 	handleMethod := handlerValue.MethodByName("Handle")
-	
+
 	if !handleMethod.IsValid() {
 		return fmt.Errorf("handler %s does not have Handle method", wrapper.name)
 	}
-	
-	// 创建事件上下文
+
+	// 创建事件上下文，传入 server
 	eventCtx := &Context[interface{}]{
 		Context:  ctx,
 		Event:    event,
 		Metadata: make(map[string]interface{}),
 		aborted:  false,
+		server:   server, // 添加 server 引用
 	}
-	
+
 	// 应用中间件
 	finalHandler := func(c *Context[interface{}]) error {
 		results := handleMethod.Call([]reflect.Value{reflect.ValueOf(eventCtx)})
@@ -155,7 +156,7 @@ func (d *Dispatcher) invokeHandler(ctx context.Context, event interface{}, wrapp
 		}
 		return nil
 	}
-	
+
 	handler := applyMiddlewares(finalHandler, d.middlewares)
 	return handler(eventCtx)
 }
